@@ -1,6 +1,7 @@
 {
-  "name": "discord-key-bot-render",
+  "name": "discord-key-bot",
   "version": "1.0.0",
+  "description": "Bot redeem key by fps pro",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
