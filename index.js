@@ -25,7 +25,7 @@ db.exec("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY)");
 // --- 3. CẤU HÌNH ID (GIỮ NGUYÊN) ---
 const BUYER_ROLE_ID = '1465606400603328577';
 const ADMIN_ROLE_ID = '1465374336214106237';
-const LOG_CHANNEL_ID = '1468261843817730048'; 
+const LOG_CHANNEL_ID = '1474046141153677313'; 
 
 const client = new Client({
     intents: [
@@ -84,8 +84,7 @@ client.on('messageCreate', async message => {
         const setupEmbed = new EmbedBuilder()
             .setColor('#F1C40F')
             .setTitle('🌟 KÍCH HOẠT QUYỀN LỢI BUYER')
-            .setDescription('Chào mừng bạn đến với hệ thống kích hoạt tự động!\n\n**Hướng dẫn:**\n1️⃣ Nhấn nút **Redeem Key** bên dưới.\n2️⃣ Nhập mã License bạn đã mua.\n3️⃣ Bot sẽ tự động gán Role và gửi thông báo cho bạn.')
-            .setImage('https://i.imgur.com/8Q85n7s.png') 
+            .setDescription("🔑 Nhấn **Redeem Key** rồi nhập mã để kích hoạt quyền.")
             .setFooter({ text: 'Hệ thống an toàn & bảo mật', iconURL: message.guild.iconURL() });
 
         const row = new ActionRowBuilder().addComponents(
@@ -93,7 +92,7 @@ client.on('messageCreate', async message => {
                 .setCustomId('btn_redeem')
                 .setLabel('Redeem Key')
                 .setStyle(ButtonStyle.Success)
-                .setEmoji('🧧')
+                .setEmoji('🔥')
         );
 
         await message.channel.send({ embeds: [setupEmbed], components: [row] });
@@ -153,7 +152,7 @@ client.on('interactionCreate', async interaction => {
             .setDescription('Nhấn nút bên dưới để nhập Key.')
             .setImage('https://i.imgur.com/8Q85n7s.png');
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('btn_redeem').setLabel('Redeem Key').setStyle(ButtonStyle.Success).setEmoji('🧧')
+            new ButtonBuilder().setCustomId('btn_redeem').setLabel('Redeem Key').setStyle(ButtonStyle.Success).setEmoji('🔥')
         );
         await interaction.channel.send({ embeds: [setupEmbed], components: [row] });
         await interaction.reply({ content: '✅ Xong!', ephemeral: true });
