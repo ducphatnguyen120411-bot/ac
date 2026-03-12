@@ -25,7 +25,7 @@ db.exec("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY)");
 // --- 3. CẤU HÌNH ID (THAY THẾ TẠI ĐÂY) ---
 const BUYER_ROLE_ID = '1465606400603328577';
 const ADMIN_ROLE_ID = '1465374336214106237';
-const LOG_CHANNEL_ID = '1481597927548784817'; 
+const LOG_CHANNEL_ID = '1468261843817730048'; 
 
 const client = new Client({
     intents: [
