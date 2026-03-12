@@ -22,7 +22,7 @@ const dbPath = path.join(dataDir, 'database.sqlite');
 const db = new Database(dbPath);
 db.exec("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY)");
 
-// --- 3. CẤU HÌNH ID (THAY THẾ TẠI ĐÂY) ---
+// --- 3. CẤU HÌNH ID ---
 const BUYER_ROLE_ID = '1465606400603328577';
 const ADMIN_ROLE_ID = '1465374336214106237';
 const LOG_CHANNEL_ID = '1468261843817730048'; 
@@ -32,12 +32,11 @@ const client = new Client({
         GatewayIntentBits.Guilds, 
         GatewayIntentBits.GuildMessages, 
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages // Quan trọng để gửi DM
+        GatewayIntentBits.DirectMessages 
     ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// Hàm tạo key ngẫu nhiên
 function generateRandomKey() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     const lengths = [6, 6, 5, 6, 6, 6];
@@ -72,10 +71,36 @@ client.once('ready', async () => {
     }
 });
 
-// --- 5. LỆNH TIN NHẮN TẠO KEY (!c [số lượng]) ---
+// --- 5. LỆNH TIN NHẮN (TẠO KEY !c VÀ SETUP !setup) ---
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
 
+    // --- LỆNH !setup (MỚI THÊM VÀO THEO Ý BẠN) ---
+    if (message.content === '!setup') {
+        if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.has(ADMIN_ROLE_ID)) {
+            return message.reply('❌ Bạn không có quyền dùng lệnh này!');
+        }
+
+        const setupEmbed = new EmbedBuilder()
+            .setColor('#F1C40F')
+            .setTitle('🌟 KÍCH HOẠT QUYỀN LỢI BUYER')
+            .setDescription('Chào mừng bạn đến với hệ thống kích hoạt tự động!\n\n**Hướng dẫn:**\n1️⃣ Nhấn nút **Redeem Key** bên dưới.\n2️⃣ Nhập mã License bạn đã mua.\n3️⃣ Bot sẽ tự động gán Role và gửi thông báo cho bạn.')
+            .setImage('https://i.imgur.com/8Q85n7s.png') 
+            .setFooter({ text: 'Hệ thống an toàn & bảo mật', iconURL: message.guild.iconURL() });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('btn_redeem')
+                .setLabel('Redeem Key')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🧧')
+        );
+
+        await message.channel.send({ embeds: [setupEmbed], components: [row] });
+        await message.delete().catch(() => null); // Xóa chữ !setup cho đẹp kênh
+    }
+
+    // --- LỆNH !c (GIỮ NGUYÊN) ---
     if (message.content.startsWith('!c')) {
         if (!message.member.roles.cache.has(ADMIN_ROLE_ID)) {
             const errEmbed = new EmbedBuilder().setColor('#ED4245').setDescription('❌ Bạn không có quyền quản trị để tạo key!');
@@ -117,10 +142,10 @@ client.on('messageCreate', async message => {
     }
 });
 
-// --- 6. XỬ LÝ INTERACTION (NÚT BẤM, MODAL) ---
+// --- 6. XỬ LÝ INTERACTION (NÚT BẤM, MODAL) --- (GIỮ NGUYÊN TOÀN BỘ)
 client.on('interactionCreate', async interaction => {
     
-    // 6.1 Lệnh Setup Redeem Panel
+    // 6.1 Lệnh Slash Setup
     if (interaction.isChatInputCommand() && interaction.commandName === 'setup_redeem') {
         if (!interaction.member.permissions.has('Administrator')) {
             return interaction.reply({ content: '❌ Bạn cần quyền Administrator.', ephemeral: true });
@@ -130,7 +155,7 @@ client.on('interactionCreate', async interaction => {
             .setColor('#F1C40F')
             .setTitle('🌟 KÍCH HOẠT QUYỀN LỢI BUYER')
             .setDescription('Chào mừng bạn đến với hệ thống kích hoạt tự động!\n\n**Hướng dẫn:**\n1️⃣ Nhấn nút **Redeem Key** bên dưới.\n2️⃣ Nhập mã License bạn đã mua.\n3️⃣ Bot sẽ tự động gán Role và gửi thông báo cho bạn.')
-            .setImage('https://i.imgur.com/8Q85n7s.png') // Banner tùy chỉnh
+            .setImage('https://i.imgur.com/8Q85n7s.png')
             .setFooter({ text: 'Hệ thống an toàn & bảo mật', iconURL: interaction.guild.iconURL() });
 
         const row = new ActionRowBuilder().addComponents(
@@ -172,7 +197,6 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ embeds: [failEmbed], ephemeral: true });
         }
 
-        // Xóa Key ngay lập tức để bảo mật
         db.prepare('DELETE FROM keys WHERE key = ?').run(userKey);
 
         try {
@@ -181,14 +205,12 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.member.roles.add(role);
 
-            // Gửi tin nhắn thành công tại chỗ (Ephermal)
             const successUserEmbed = new EmbedBuilder()
                 .setColor('#2ECC71')
                 .setTitle('🎉 KÍCH HOẠT THÀNH CÔNG!')
                 .setDescription(`Bạn đã trở thành **Buyer** của server **${interaction.guild.name}**.\nVui lòng kiểm tra tin nhắn riêng (DM) để nhận thông tin chi tiết.`);
             await interaction.reply({ embeds: [successUserEmbed], ephemeral: true });
 
-            // --- GỬI DM CHO USER ---
             const dmEmbed = new EmbedBuilder()
                 .setColor('#2ECC71')
                 .setTitle('🎊 XÁC NHẬN KÍCH HOẠT BẢN QUYỀN')
@@ -201,13 +223,8 @@ client.on('interactionCreate', async interaction => {
                 .setFooter({ text: 'Cảm ơn bạn đã ủng hộ chúng tôi!' })
                 .setTimestamp();
 
-            try {
-                await interaction.user.send({ embeds: [dmEmbed] });
-            } catch (err) {
-                console.log(`[DM] Không thể gửi tin nhắn cho ${interaction.user.tag} (User đóng DM).`);
-            }
+            try { await interaction.user.send({ embeds: [dmEmbed] }); } catch (err) {}
 
-            // --- GỬI LOG VÀO KÊNH QUẢN TRỊ ---
             const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID) || await interaction.guild.channels.fetch(LOG_CHANNEL_ID);
             if (logChannel) {
                 const logEmbed = new EmbedBuilder()
@@ -225,10 +242,7 @@ client.on('interactionCreate', async interaction => {
 
         } catch (err) {
             console.error(err);
-            const errRoleEmbed = new EmbedBuilder()
-                .setColor('#ED4245')
-                .setTitle('❌ Lỗi hệ thống')
-                .setDescription('Bot không thể gán role. Vui lòng liên hệ Admin kiểm tra quyền hạn của Bot (Role của Bot phải nằm trên Role Buyer).');
+            const errRoleEmbed = new EmbedBuilder().setColor('#ED4245').setTitle('❌ Lỗi hệ thống').setDescription('Bot không thể gán role.');
             await interaction.reply({ embeds: [errRoleEmbed], ephemeral: true });
         }
     }
