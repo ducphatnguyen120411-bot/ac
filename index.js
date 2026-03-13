@@ -39,7 +39,7 @@ const CONFIG = {
     ADMIN_ROLE_ID: '1465374336214106237',
     LOG_CHANNEL_ID: '1474046141153677313',
     THEME_COLOR: '#2B2D31', // Màu tàng hình tiệp với nền Discord
-    BANNER_URL: 'https://i.imgur.com/8Q85n7s.png'
+    BANNER_URL: 'https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2Ft64rltdqx90e1.gif'
 };
 
 const client = new Client({
