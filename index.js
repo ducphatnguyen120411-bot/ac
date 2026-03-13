@@ -39,7 +39,7 @@ const CONFIG = {
     ADMIN_ROLE_ID: '1465374336214106237',
     LOG_CHANNEL_ID: '1474046141153677313',
     THEME_COLOR: '#2B2D31', // Màu tàng hình tiệp với nền Discord
-    BANNER_URL: 'https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2Ft64rltdqx90e1.gif'
+    BANNER_URL: 'https://i.pinimg.com/originals/4c/d9/ce/4cd9ce636c6d5f23688f0fda99cd81cf.gif'
 };
 
 const client = new Client({
@@ -168,7 +168,7 @@ client.on('interactionCreate', async interaction => {
             const input = new TextInputBuilder()
                 .setCustomId('input_key')
                 .setLabel('Nhập License Key của bạn vào đây:')
-                .setPlaceholder(`Ví dụ: ${CONFIG.KEY_PREFIX}-A1B2-C3D4-E5F6`)
+                .setPlaceholder(`nhập key tại đây`)
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true);
             
