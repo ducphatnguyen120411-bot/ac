@@ -9,205 +9,229 @@ const path = require('path');
 const express = require('express');
 const fs = require('fs');
 
-// --- 1. WEB SERVER (KEEP-ALIVE) ---
+// --- 1. WEB SERVER CHO RENDER (KEEP-ALIVE) ---
 const app = express();
-app.get('/', (req, res) => res.send('🟢 Bot Premium is Running!'));
-app.listen(process.env.PORT || 3000);
+app.get('/', (req, res) => res.send('Bot is online!'));
+app.listen(process.env.PORT || 3000, () => {
+    console.log('✅ Web server đang chạy trên port', process.env.PORT || 3000);
+});
 
-// --- 2. CẤU HÌNH & DATABASE ---
-const CONFIG = {
-    BUYER_ROLE_ID: '1465606400603328577',
-    ADMIN_ROLE_ID: '1465374336214106237',
-    LOG_CHANNEL_ID: '1474046141153677313',
-    BANNER: 'https://images.steamusercontent.com/ugc/449611652050198394/003B0F458420C44A75D10CBDC94A9C0B964C06F7/',
-    COLORS: { GOLD: '#FFD700', SUCCESS: '#2ECC71', ERROR: '#ED4245', INFO: '#5865F2' }
-};
-
+// --- 2. CẤU HÌNH DATABASE ---
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
-const db = new Database(path.join(dataDir, 'database.sqlite'));
 
-// Tạo bảng lưu Key (có thêm cột days) và bảng Subs (lưu ngày hết hạn)
-db.exec("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY, days INTEGER)");
-db.exec("CREATE TABLE IF NOT EXISTS subs (userId TEXT PRIMARY KEY, expiry BIGINT)");
+const dbPath = path.join(dataDir, 'database.sqlite');
+const db = new Database(dbPath);
+db.exec("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY)");
+
+// --- 3. CẤU HÌNH ID ---
+const BUYER_ROLE_ID = '1465606400603328577';
+const ADMIN_ROLE_ID = '1465374336214106237';
+const LOG_CHANNEL_ID = '1474046141153677313'; 
 
 const client = new Client({
-    intents: [32767], // Đầy đủ Intents cho Discord.js v14
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages 
+    ],
     partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
-// Hàm tạo Key chuyên nghiệp
-function generateKey() {
-    const part = () => Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `PREMIUM-${part()}-${part()}-${part()}`;
+function generateRandomKey() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const lengths = [6, 6, 5, 6, 6, 6];
+    return lengths.map(len => {
+        let str = '';
+        for (let i = 0; i < len; i++) {
+            str += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return str;
+    }).join('-');
 }
 
-// --- 3. SLASH COMMANDS (Check hạn sử dụng) ---
+// --- 4. SLASH COMMANDS SETUP ---
+const commands = [
+    new SlashCommandBuilder()
+        .setName('setup_redeem')
+        .setDescription('Tạo bảng nút bấm Redeem Key chuyên nghiệp')
+].map(command => command.toJSON());
+
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
 client.once('ready', async () => {
-    console.log(`🤖 Online: ${client.user.tag}`);
-    const commands = [
-        new SlashCommandBuilder().setName('me').setDescription('Xem thời hạn gói Premium của bạn'),
-    ].map(cmd => cmd.toJSON());
-
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
-
-    // HỆ THỐNG QUÉT HẾT HẠN TỰ ĐỘNG (Mỗi 60 giây)
-    setInterval(async () => {
-        const now = Date.now();
-        const expired = db.prepare('SELECT userId FROM subs WHERE expiry < ?').all(now);
-        for (const user of expired) {
-            const guild = client.guilds.cache.get(process.env.GUILD_ID);
-            if (!guild) continue;
-            const member = await guild.members.fetch(user.userId).catch(() => null);
-            if (member) await member.roles.remove(CONFIG.BUYER_ROLE_ID).catch(() => null);
-            db.prepare('DELETE FROM subs WHERE userId = ?').run(user.userId);
-            console.log(`[System] Đã gỡ hạn: ${user.userId}`);
-        }
-    }, 60000);
+    console.log(`✅ Đã đăng nhập Discord Bot: ${client.user.tag}`);
+    try {
+        await rest.put(
+            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            { body: commands },
+        );
+        console.log('✅ Đã cập nhật Slash Commands');
+    } catch (error) {
+        console.error('❌ Lỗi khi cập nhật Slash Commands:', error);
+    }
 });
 
-// --- 4. XỬ LÝ LỆNH TIN NHẮN (!s và !c) ---
+// --- 5. LỆNH TIN NHẮN (!s VÀ !c) ---
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
 
-    // Lệnh !s (Setup Panel) - Fix lỗi: Xóa tin nhắn ngay lập tức
-    if (message.content.toLowerCase() === '!s') {
-        await message.delete().catch(() => null); 
-        if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return;
+    // Lệnh !s (Setup Panel)
+    if (message.content === '!s') {
+        if (!message.member.permissions.has('Administrator') && !message.member.roles.cache.has(ADMIN_ROLE_ID)) {
+            return message.reply('❌ Bạn không có quyền dùng lệnh này!');
+        }
 
         const setupEmbed = new EmbedBuilder()
-            .setColor(CONFIG.COLORS.GOLD)
-            .setTitle('💎 HỆ THỐNG KÍCH HOẠT PREMIUM')
-            .setDescription(
-                "Chào mừng bạn đến với khu vực nâng cấp thành viên!\n\n" +
-                "**Quyền lợi:**\n" +
-                "✅ Truy cập các kênh ẩn VIP.\n" +
-                "✅ Role đặc biệt sáng nhất bảng thành viên.\n" +
-                "✅ Hỗ trợ ưu tiên từ Admin.\n\n" +
-                "*Bấm vào nút dưới đây để nhập mã License.*"
-            )
-            .setImage(CONFIG.BANNER)
-            .setFooter({ text: 'Hệ thống tự động 24/7', iconURL: client.user.displayAvatarURL() });
+            .setColor('#F1C40F')
+            .setTitle('🌟 KÍCH HOẠT QUYỀN LỢI BUYER')
+            .setDescription("🔑 Nhấn **Redeem Key** rồi nhập mã để kích hoạt quyền.")
+            .setFooter({ text: 'Hệ thống an toàn & bảo mật', iconURL: message.guild.iconURL() });
 
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('btn_redeem').setLabel('KÍCH HOẠT NGAY').setStyle(ButtonStyle.Success).setEmoji('🗝️')
+            new ButtonBuilder()
+                .setCustomId('btn_redeem')
+                .setLabel('Redeem Key')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🔥')
         );
 
         await message.channel.send({ embeds: [setupEmbed], components: [row] });
+        await message.delete().catch(() => null);
     }
 
-    // Lệnh !c <ngày> <số lượng> (Tạo Key)
+    // Lệnh !c (Create Keys)
     if (message.content.startsWith('!c')) {
-        await message.delete().catch(() => null);
-        if (!message.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return;
+        if (!message.member.roles.cache.has(ADMIN_ROLE_ID) && !message.member.permissions.has('Administrator')) {
+            const errEmbed = new EmbedBuilder().setColor('#ED4245').setDescription('❌ Bạn không có quyền quản trị để tạo key!');
+            return message.reply({ embeds: [errEmbed] });
+        }
 
-        const args = message.content.split(/\s+/);
-        const days = parseInt(args[1]) || 30;
-        const count = parseInt(args[2]) || 1;
+        const args = message.content.trim().split(/\s+/);
+        let count = parseInt(args[1]);
+        if (isNaN(count) || count <= 0) count = 1;
+        if (count > 1000) count = 1000;
 
         const newKeys = [];
-        const insert = db.prepare('INSERT INTO keys (key, days) VALUES (?, ?)');
-        for (let i = 0; i < count; i++) {
-            const k = generateKey();
-            insert.run(k, days);
-            newKeys.push(k);
-        }
+        const insert = db.prepare('INSERT INTO keys (key) VALUES (?)');
+        const insertMany = db.transaction((keys) => {
+            for (const k of keys) insert.run(k);
+        });
+
+        for (let i = 0; i < count; i++) newKeys.push(generateRandomKey());
+        insertMany(newKeys);
 
         const keyText = newKeys.join('\n');
         const successEmbed = new EmbedBuilder()
-            .setColor(CONFIG.COLORS.SUCCESS)
-            .setTitle('🔐 ĐÃ TẠO KEY THÀNH CÔNG')
-            .setDescription(`Tạo thành công **${count}** key loại **${days} ngày**.`)
+            .setColor('#2ECC71')
+            .setTitle('🔑 KHỞI TẠO KEY THÀNH CÔNG')
+            .setDescription(`Đã tạo **${count}** License Key mới.`)
             .setTimestamp();
 
-        if (keyText.length > 1024) {
+        if (keyText.length > 1900) {
             const buffer = Buffer.from(keyText, 'utf-8');
-            const attachment = new AttachmentBuilder(buffer, { name: 'keys.txt' });
-            await message.channel.send({ embeds: [successEmbed], files: [attachment] });
+            const attachment = new AttachmentBuilder(buffer, { name: `List_Keys_${count}.txt` });
+            await message.reply({ embeds: [successEmbed], files: [attachment] });
         } else {
-            successEmbed.addFields({ name: 'Danh sách mã:', value: `\`\`\`\n${keyText}\n\`\`\`` });
-            await message.channel.send({ embeds: [successEmbed] });
+            successEmbed.addFields({ name: 'Danh sách:', value: `\`\`\`\n${keyText}\n\`\`\`` });
+            await message.reply({ embeds: [successEmbed] });
         }
     }
 });
 
-// --- 5. XỬ LÝ INTERACTION (MODAL & CỘNG DỒN THỜI GIAN) ---
+// --- 6. XỬ LÝ INTERACTION (SLASH COMMANDS & BUTTONS & MODALS) ---
 client.on('interactionCreate', async interaction => {
-    // Check hạn bằng lệnh /me
-    if (interaction.isChatInputCommand() && interaction.commandName === 'me') {
-        const row = db.prepare('SELECT expiry FROM subs WHERE userId = ?').get(interaction.user.id);
-        if (!row) return interaction.reply({ content: '❌ Bạn hiện chưa có gói Premium nào.', ephemeral: true });
-        
-        const ts = Math.floor(row.expiry / 1000);
-        const embed = new EmbedBuilder()
-            .setTitle('💎 THÔNG TIN CỦA BẠN')
-            .setColor(CONFIG.COLORS.INFO)
-            .addFields(
-                { name: 'Trạng thái:', value: '🟢 Đang hoạt động', inline: true },
-                { name: 'Ngày hết hạn:', value: `<t:${ts}:F>`, inline: false },
-                { name: 'Thời gian còn lại:', value: `<t:${ts}:R>`, inline: false }
+    try {
+        // 6.1 Lệnh Slash Setup
+        if (interaction.isChatInputCommand() && interaction.commandName === 'setup_redeem') {
+            if (!interaction.member.permissions.has('Administrator')) {
+                return interaction.reply({ content: '❌ Bạn cần quyền Administrator.', ephemeral: true });
+            }
+            const setupEmbed = new EmbedBuilder()
+                .setColor('#F1C40F')
+                .setTitle('🌟 KÍCH HOẠT QUYỀN LỢI BUYER')
+                .setDescription('Nhấn nút bên dưới để nhập Key.')
+                .setImage('https://i.imgur.com/8Q85n7s.png');
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_redeem').setLabel('Redeem Key').setStyle(ButtonStyle.Success).setEmoji('🔥')
             );
-        return interaction.reply({ embeds: [embed], ephemeral: true });
-    }
-
-    // Hiện Modal khi bấm nút
-    if (interaction.isButton() && interaction.customId === 'btn_redeem') {
-        const modal = new ModalBuilder().setCustomId('modal_redeem').setTitle('KÍCH HOẠT KEY');
-        const input = new TextInputBuilder()
-            .setCustomId('input_key')
-            .setLabel('NHẬP MÃ LICENSE:')
-            .setPlaceholder('PREMIUM-XXXX-XXXX-XXXX')
-            .setStyle(TextInputStyle.Short).setRequired(true);
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        return await interaction.showModal(modal);
-    }
-
-    // Xử lý nạp Key
-    if (interaction.isModalSubmit() && interaction.customId === 'modal_redeem') {
-        const userKey = interaction.fields.getTextInputValue('input_key').trim();
-        const keyData = db.prepare('SELECT * FROM keys WHERE key = ?').get(userKey);
-
-        if (!keyData) {
-            return interaction.reply({ content: '❌ Key không tồn tại hoặc đã được sử dụng!', ephemeral: true });
+            await interaction.channel.send({ embeds: [setupEmbed], components: [row] });
+            return interaction.reply({ content: '✅ Xong!', ephemeral: true });
         }
 
-        // --- LOGIC CỘNG DỒN ---
-        const now = Date.now();
-        const addTimeMS = keyData.days * 24 * 60 * 60 * 1000;
-        const currentSub = db.prepare('SELECT expiry FROM subs WHERE userId = ?').get(interaction.user.id);
-
-        let newExpiry;
-        if (currentSub && currentSub.expiry > now) {
-            newExpiry = currentSub.expiry + addTimeMS; // Cộng tiếp vào hạn cũ
-        } else {
-            newExpiry = now + addTimeMS; // Tính từ bây giờ
+        // 6.2 Bấm nút Redeem Key -> Mở Modal Form
+        if (interaction.isButton() && interaction.customId === 'btn_redeem') {
+            const modal = new ModalBuilder().setCustomId('modal_redeem').setTitle('🔑 Nhập mã kích hoạt');
+            const input = new TextInputBuilder()
+                .setCustomId('input_key')
+                .setLabel('License Key của bạn:')
+                .setPlaceholder('Nhập mã tại đây...')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+            
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
+            
+            await interaction.showModal(modal);
+            return;
         }
 
-        // Lưu Database & Xóa Key
-        db.prepare('INSERT OR REPLACE INTO subs (userId, expiry) VALUES (?, ?)').run(interaction.user.id, newExpiry);
-        db.prepare('DELETE FROM keys WHERE key = ?').run(userKey);
+        // 6.3 Xử lý dữ liệu từ Modal Form
+        if (interaction.isModalSubmit() && interaction.customId === 'modal_redeem') {
+            const userKey = interaction.fields.getTextInputValue('input_key').trim();
+            const row = db.prepare('SELECT * FROM keys WHERE key = ?').get(userKey);
 
-        // Gán Role
-        const role = interaction.guild.roles.cache.get(CONFIG.BUYER_ROLE_ID);
-        if (role) await interaction.member.roles.add(role).catch(() => null);
+            if (!row) {
+                return interaction.reply({ content: '❌ Key không tồn tại hoặc đã được sử dụng!', ephemeral: true });
+            }
 
-        const ts = Math.floor(newExpiry / 1000);
-        await interaction.reply({ content: `🎉 Thành công! Bạn đã nạp thêm **${keyData.days} ngày**. Hạn mới: <t:${ts}:f>`, ephemeral: true });
+            // Xóa key khỏi DB ngay lập tức
+            db.prepare('DELETE FROM keys WHERE key = ?').run(userKey);
 
-        // Log Admin
-        const logChan = interaction.guild.channels.cache.get(CONFIG.LOG_CHANNEL_ID);
-        if (logChan) {
-            const logEmbed = new EmbedBuilder()
-                .setColor(CONFIG.COLORS.SUCCESS)
-                .setAuthor({ name: '🔑 KEY REDEEMED', iconURL: interaction.user.displayAvatarURL() })
-                .addFields(
-                    { name: 'Khách hàng:', value: `${interaction.user}`, inline: true },
-                    { name: 'Số ngày nạp:', value: `\`${keyData.days} Ngày\``, inline: true },
-                    { name: 'Hạn mới:', value: `<t:${ts}:F>`, inline: false }
-                );
-            logChan.send({ embeds: [logEmbed] });
+            try {
+                const role = interaction.guild.roles.cache.get(BUYER_ROLE_ID);
+                if (!role) {
+                    return interaction.reply({ content: '❌ Lỗi Server: Không tìm thấy Role Buyer để gán!', ephemeral: true });
+                }
+
+                await interaction.member.roles.add(role);
+                await interaction.reply({ content: '🎉 Kích hoạt thành công! Bạn đã nhận được Role Buyer.', ephemeral: true });
+
+                // Gửi tin nhắn riêng (DM)
+                try {
+                    const dmEmbed = new EmbedBuilder()
+                        .setColor('#2ECC71')
+                        .setTitle('🎊 XÁC NHẬN KÍCH HOẠT')
+                        .setDescription(`Bạn đã nhận Role tại **${interaction.guild.name}**\nKey đã dùng: \`${userKey}\``)
+                        .setTimestamp();
+                    await interaction.user.send({ embeds: [dmEmbed] });
+                } catch (e) {
+                    console.log(`[Log] Không thể gửi DM cho ${interaction.user.tag}`);
+                }
+
+                // Gửi thông báo ra kênh Log
+                const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
+                if (logChannel) {
+                    const logEmbed = new EmbedBuilder()
+                        .setColor('#5865F2')
+                        .setTitle('📢 LOG REDEEM')
+                        .addFields(
+                            { name: 'Người dùng:', value: `${interaction.user} (${interaction.user.id})`, inline: true },
+                            { name: 'Key:', value: `\`${userKey}\``, inline: true }
+                        )
+                        .setTimestamp();
+                    await logChannel.send({ embeds: [logEmbed] });
+                }
+            } catch (err) {
+                console.error('[Lỗi gán Role]:', err);
+                if (!interaction.replied) {
+                    await interaction.reply({ content: '❌ Lỗi khi gán Role! Hãy chắc chắn Bot có quyền "Manage Roles" và Role của Bot nằm cao hơn Role Buyer.', ephemeral: true });
+                }
+            }
+            return;
         }
+    } catch (error) {
+        console.error('[Lỗi Interaction Chung]:', error);
     }
 });
 
